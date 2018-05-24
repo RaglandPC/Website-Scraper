@@ -44,15 +44,35 @@ app.get("/scrape", function(req, res){
     var $ = cheerio.load(html);
 
 //For each dib class
-    $("div.u-sizeFullWidth").each(function(i, element){
+    $(".js-trackedPost.js-sectionItem").each(function(i, element){
         //Title
         var title = $(element).find("h3").text();
-    })
-
-
-
-
+        var imgLink = $(element).find("a.u-block").attr("style");
+        var text = $(element).find("h4").text();
+        var auther = $(element).find("a.ds-link").text();
+        var date = $(element).find("time").text();
+      
+    
+        db.scrapedData.insert({
+            title: title,
+            imgLink: imgLink,
+            text: text,
+            auther: auther,
+            date: date
+          
+        },
+        function(err, inserted){
+            if (err) {
+                console.log(err);
+            }
+            else {
+                console.log(inserted);
+            }
+        });
+      
     });
+  });
+
 res.send("Scrape Complete");   
 });
 app.listen(3000, function() {

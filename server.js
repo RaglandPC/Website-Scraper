@@ -1,81 +1,123 @@
-// Dependencies
-
 var express = require("express");
-var mongojs = require("mongojs");
-//Require request and cheerio. This makes the scraping possible
-var request = require("request");
+var bodyParser = require("body-parser");
+var logger = require("morgan");
+var mongoose = require("mongoose");
+
+// Our scraping tools
+// Axios is a promised-based http library, similar to jQuery's Ajax method
+// It works on the client and on the server
+var axios = require("axios");
 var cheerio = require("cheerio");
 
-// Initialize express
+
+
+var db = require("./models");
 
 var app = express();
 
-// Database configuration
-var databaseUrl = "scraper";
-var collections = ["scrapedData"];
+var PORT = process.env.PORT || 3000;
 
-var db = mongojs(databaseUrl, collections);
-db.on("error", function(error){
-    console.log("Database Error", error);
-});
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json());
+
+// If deployed, use the deployed database. Otherwise use the local mongoHeadlines database
+var MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost/Website-Scraper";
+
+// Set mongoose to leverage built in JavaScript ES6 Promises
+// Connect to the Mongo DB
+mongoose.Promise = Promise;
+mongoose.connect(MONGODB_URI);
 
 // Main Route
-app.get("/", function(req, res){
-    res.send("Hello world");
-});
 
-app.get("/all", function(req, res){
-    //Find all results from the scrapedData collection in the db
-    db.scrapedData.find({}, function(error, found){
-        if (error){
-            console.log(error);
-        }
-        // If no errors send to client
-        else {
-            res.json(found);
-        }
-    });
-});
-
-// Sxrape data from one site and place it into the mongodb
-app.get("/scrape", function(req, res){
-    request("https://medium.com/topic/technology", function(error, response, html){
-// Load the html body from request into Cheerio
-    var $ = cheerio.load(html);
-
-//For each dib class
-    $(".js-trackedPost.js-sectionItem").each(function(i, element){
+// A GET route for scraping the echoJS website
+app.get("/scrape", function(req, res) {
+    // First, we grab the body of the html with request
+    axios.get("https://medium.com/topic/technology").then(function(response) {
+      // Then, we load that into cheerio and save it to $ for a shorthand selector
+      var $ = cheerio.load(response.data);
+  
+      $(".js-trackedPost.js-sectionItem").each(function(i, element){
         //Title
-        var title = $(element).find("h3").text();
-        var imgLink = $(element).find("a.u-block").attr("style");
-        var text = $(element).find("h4").text();
-        var auther = $(element).find("a.ds-link").text();
-        var date = $(element).find("time").text();
-      
-    
-        db.scrapedData.insert({
-            title: title,
-            imgLink: imgLink,
-            text: text,
-            auther: auther,
-            date: date
-          
-        },
-        function(err, inserted){
-            if (err) {
-                console.log(err);
-            }
-            else {
-                console.log(inserted);
-            }
-        });
-      
+      var result = {};
+        
+         result.title = $(this).find("h3").text();
+         result.text = $(this).find("h4").text();
+         result.auther = $(this).find("a.ds-link").text();
+         result.date = $(this).find("time").text();
+  
+        // Create a new Article using the `result` object built from scraping
+        db.Article.create(result)
+          .then(function(dbArticle) {
+            // View the added result in the console
+            console.log(dbArticle);
+          })
+          .catch(function(err) {
+            // If an error occurred, send it to the client
+            return res.json(err);
+          });
+      });
+  
+      // If we were able to successfully scrape and save an Article, send a message to the client
+      res.send("Scrape Complete");
     });
-  });
-
-res.send("Scrape Complete");   
-});
-app.listen(3000, function() {
-    console.log("App running on port 3000!");
   });
   
+
+// Route for getting all Articles from the db
+app.get("/articles", function(req, res) {
+    // Grab every document in the Articles collection
+    db.Article.find({})
+      .then(function(dbArticle) {
+        // If we were able to successfully find Articles, send them back to the client
+        res.json(dbArticle);
+      })
+      .catch(function(err) {
+        // If an error occurred, send it to the client
+        res.json(err);
+      });
+  });
+  
+  // Route for grabbing a specific Article by id, populate it with it's note
+  app.get("/articles/:id", function(req, res) {
+    // Using the id passed in the id parameter, prepare a query that finds the matching one in our db...
+    db.Article.findOne({ _id: req.params.id })
+      // ..and populate all of the notes associated with it
+      .populate("note")
+      .then(function(dbArticle) {
+        // If we were able to successfully find an Article with the given id, send it back to the client
+        res.json(dbArticle);
+      })
+      .catch(function(err) {
+        // If an error occurred, send it to the client
+        res.json(err);
+      });
+  });
+  
+  // Route for saving/updating an Article's associated Note
+  app.post("/articles/:id", function(req, res) {
+    // Create a new note and pass the req.body to the entry
+    db.Note.create(req.body)
+      .then(function(dbNote) {
+        // If a Note was created successfully, find one Article with an `_id` equal to `req.params.id`. Update the Article to be associated with the new Note
+        // { new: true } tells the query that we want it to return the updated User -- it returns the original by default
+        // Since our mongoose query returns a promise, we can chain another `.then` which receives the result of the query
+        return db.Article.findOneAndUpdate({ _id: req.params.id }, { note: dbNote._id }, { new: true });
+      })
+      .then(function(dbArticle) {
+        // If we were able to successfully update an Article, send it back to the client
+        res.json(dbArticle);
+      })
+      .catch(function(err) {
+        // If an error occurred, send it to the client
+        res.json(err);
+      });
+  });
+  
+  // Start the server
+  app.listen(PORT, function() {
+    console.log("App running on port " + PORT + "!");
+  });
+  
+
+

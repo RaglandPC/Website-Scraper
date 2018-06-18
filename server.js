@@ -2,17 +2,18 @@ var express = require("express");
 var bodyParser = require("body-parser");
 var logger = require("morgan");
 var mongoose = require("mongoose");
+var request = require("request");
 
 // Our scraping tools
 // Axios is a promised-based http library, similar to jQuery's Ajax method
 // It works on the client and on the server
-var axios = require("axios");
+
 var cheerio = require("cheerio");
 
 
-
+"mongodb://localhost/Website-Scraper"
 var db = require("./models");
-var PORT = 3000;
+var PORT = process.env.PORT || 3000;
 
 // Initialize Express
 var app = express();
@@ -26,26 +27,37 @@ app.use(bodyParser.urlencoded({ extended: true }));
 // Use express.static to serve the public folder as a static directory
 app.use(express.static("public"));
 
-// Connect to the Mongo DB
+// Database configuration with mongoose
 mongoose.connect("mongodb://localhost/Website-Scraper");
+//mongoose.connect("mongodb://localhost/mongoscraper");
+var db = mongoose.connection;
+
+// Show any mongoose errors
+db.on("error", function(error) {
+  console.log("Mongoose Error: ", error);
+});
+
+// Once logged in to the db through mongoose, log a success message
+db.once("open", function() {
+  console.log("Mongoose connection successful.");
+});
 
 // Main Route
 
 // A GET route for scraping the echoJS website
 app.get("/scrape", function(req, res) {
     // First, we grab the body of the html with request
-    axios.get("https://medium.com/topic/technology").then(function(response) {
+      request("https://www.nytimes.com/", function(error, response, html) {
       // Then, we load that into cheerio and save it to $ for a shorthand selector
-      var $ = cheerio.load(response.data);
+      var $ = cheerio.load(html);
   
-      $(".js-trackedPost.js-sectionItem").each(function(i, element){
+      $("article").each(function(i, element){
         //Title
       var result = {};
         
-         result.title = $(this).find("h3").text();
-         result.text = $(this).find("h4").text();
-         result.auther = $(this).find("a.ds-link").text();
-         result.date = $(this).find("time").text();
+         result.title = $(this).children("h2").text();
+         result.summary = $(this).children(".summary").text();
+         result.link = $(this).children("h2").children("a").attr("href");
   
         // Create a new Article using the `result` object built from scraping
         db.Article.create(result)
@@ -93,9 +105,6 @@ app.get("/articles", function(req, res) {
         // If an error occurred, send it to the client
         res.json(err);
       });
-  });
-  app.get("/", function(req, res) {
-
   });
 
   // Route for saving/updating an Article's associated Note

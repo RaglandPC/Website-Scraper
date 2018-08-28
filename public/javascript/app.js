@@ -25,6 +25,7 @@ $(".btn-large").on("click",  function() {
   })
     // With that done, add the note information to the page
     .then(function(data) {
+      
       console.log(data);
 
     });
